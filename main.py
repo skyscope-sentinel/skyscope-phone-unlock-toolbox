@@ -55,6 +55,37 @@ from pathlib import Path
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+def is_url_alive(url, timeout=6):
+    """Check if a URL exists and is accessible before downloading."""
+    try:
+        import urllib.request
+        import socket
+        req = urllib.request.Request(url, method='HEAD')
+        urllib.request.urlopen(req, timeout=timeout)
+        return True
+    except (urllib.error.HTTPError, urllib.error.URLError, socket.timeout) as e:
+        logger.warning(f"URL not accessible: {url} ({e})")
+        return False
+
+def download_file(url, dest_path):
+    """Download a file with robust error handling & manual fallback."""
+    if not is_url_alive(url):
+        print(f"\nURL not found: {url}")
+        print("Please download the file manually and move it to:")
+        print(dest_path)
+        return False
+    try:
+        logger.info(f"Downloading {url}")
+        urllib.request.urlretrieve(url, dest_path)
+        logger.info(f"Downloaded to {dest_path}")
+        return True
+    except urllib.error.HTTPError as e:
+        logger.error(f"HTTP error {e.code}: {e.reason}")
+        return False
+    except Exception as e:
+        logger.error(f"Download failed: {e}")
+        return False
+
 # Constants
 ADB_URL = "https://dl.google.com/android/repository/platform-tools-latest-windows.zip"
 FASTBOOT_URL = ADB_URL  # Same package contains both
@@ -184,12 +215,18 @@ class SkyscopeToolbox:
             odin_dir = self.tools_dir / "odin"
             odin_dir.mkdir(exist_ok=True)
             # Note: Actual Odin download would require proper URL
-            logger.warning("Odin download not implemented - please manually download Odin3")
+            logger.warning("Odin download not implemented - please manually download Odin3 from:")
+            logger.warning("https://forum.xda-developers.com/t/tool-windows-odin-3-14-4.2422103/")
+            print("Please download Odin3 manually and place odin.exe in:")
+            print(odin_dir)
 
         # Download Magisk for root access
         if not self.magisk_path.exists():
             logger.info("Downloading Magisk...")
-            urllib.request.urlretrieve(MAGISK_URL, self.magisk_path)
+            if not download_file(MAGISK_URL, self.magisk_path):
+                print("Magisk download failed. Please download manually:")
+                print("https://github.com/topjohnwu/Magisk/releases")
+                print(f"And place Magisk APK at: {self.magisk_path}")
 
         # Download libimobiledevice for iOS support
         if not self.ideviceinfo_path.exists():
@@ -628,42 +665,26 @@ class SkyscopeToolbox:
 def show_menu():
     """Display the main menu for Skyscope Phone Toolbox."""
     print("""
-    ███████╗██╗  ██╗██╗   ██╗███████╗ ██████╗ ██████╗ ██████╗ ███████╗
-    ██╔════╝██║ ██╔╝╚██╗ ██╔╝██╔════╝██╔════╝██╔═══██╗██╔══██╗██╔════╝
-    ███████╗█████╔╝  ╚████╔╝ ███████╗██║     ██║   ██║██████╔╝█████╗
-    ╚════██║██╔═██╗   ╚██╔╝  ╚════██║██║     ██║   ██║██╔═══╝ ██╔══╝
-    ███████║██║  ██╗   ██║   ███████║╚██████╗╚██████╔╝██║     ███████╗
-    ╚══════╝╚═╝  ╚═╝   ╚═╝   ╚══════╝ ╚═════╝ ╚═════╝ ╚═╝     ╚══════╝
-
-                ██████╗ ██╗  ██╗ ██████╗ ███╗   ██╗███████╗
-                ██╔══██╗██║  ██║██╔═══██╗████╗  ██║██╔════╝
-                ██████╔╝███████║██║   ██║██╔██╗ ██║█████╗
-                ██╔═══╝ ██╔══██║██║   ██║██║╚██╗██║██╔══╝
-                ██║     ██║  ██║╚██████╔╝██║ ╚████║███████╗
-                ╚═╝     ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚══╝╚══════╝
-
-    =====================================================================
-
     SKYSCOPE PHONE TOOLBOX v3.0 - Advanced Device Bypass Suite
     ============================================================
 
     Select Operation:
     ================
 
-    1. 🔓 Android Device FRP Bypass
+    1. Android Device FRP Bypass
        - Samsung Galaxy S/A/Note Series (S21-S24, A51-A74, Note20-22)
        - Google Pixel Series (4-8 Pro, 9-9 Pro)
        - Universal Android (11+)
        - Methods: ADB, Fastboot, MDM, Hardware Test Points
 
-    2. 🍎 Apple Device Activation Bypass
+    2. Apple Device Activation Bypass
        - iPad 2 Series
        - iPhone 6/6s/7/8/X/XS/XS Max
        - iPhone 11-15 Series, iPhone SE (2020-2022)
        - Methods: Jailbreak, Checkra1n, Unc0ver, MDM Enrollment
 
-    3. ℹ️  System Information
-    4. ❌ Exit
+    3. System Information
+    4. Exit
 
     """)
 
@@ -688,7 +709,7 @@ def show_menu():
 def android_menu():
     """Android device bypass menu."""
     print("""
-    🔓 ANDROID DEVICE FRP BYPASS
+    ANDROID DEVICE FRP BYPASS
     ============================
 
     Supported Devices:
@@ -730,7 +751,7 @@ def android_menu():
 def ios_menu():
     """iOS device bypass menu."""
     print("""
-    🍎 APPLE DEVICE ACTIVATION BYPASS
+    APPLE DEVICE ACTIVATION BYPASS
     ================================
 
     Supported Devices:
@@ -772,7 +793,7 @@ def ios_menu():
 def show_system_info():
     """Show system information."""
     print("""
-    ℹ️  SYSTEM INFORMATION
+    SYSTEM INFORMATION
     =====================
 
     Skyscope Phone Toolbox v3.0
@@ -831,13 +852,6 @@ def main():
         return
 
     print("""
-    ███████╗██╗  ██╗██╗   ██╗███████╗ ██████╗ ██████╗ ██████╗ ███████╗
-    ██╔════╝██║ ██╔╝╚██╗ ██╔╝██╔════╝██╔════╝██╔═══██╗██╔══██╗██╔════╝
-    ███████╗█████╔╝  ╚████╔╝ ███████╗██║     ██║   ██║██████╔╝█████╗
-    ╚════██║██╔═██╗   ╚██╔╝  ╚════██║██║     ██║   ██║██╔═══╝ ██╔══╝
-    ███████║██║  ██╗   ██║   ███████║╚██████╗╚██████╔╝██║     ███████╗
-    ╚══════╝╚═╝  ╚═╝   ╚═╝   ╚══════╝ ╚═════╝ ╚═════╝ ╚═╝     ╚══════╝
-
     SKYSCOPE PHONE TOOLBOX v3.0 - Advanced Device Bypass Suite
     ============================================================
 
