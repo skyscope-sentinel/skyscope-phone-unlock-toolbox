@@ -86,22 +86,60 @@ def download_file(url, dest_path):
         logger.error(f"Download failed: {e}")
         return False
 
-# Constants
-ADB_URL = "https://dl.google.com/android/repository/platform-tools-latest-windows.zip"
-FASTBOOT_URL = ADB_URL  # Same package contains both
-ODIN_URL = "https://dl.google.com/dl/android/aosp/odin3-v3.14.4.zip"  # Placeholder - actual Odin URL may vary
-MAGISK_URL = "https://github.com/topjohnwu/Magisk/releases/latest/download/Magisk-v25.2.apk"
-LIBIMOBILEDEVICE_URL = "https://github.com/libimobiledevice-win32/libimobiledevice/releases/download/v1.3.17/libimobiledevice.1.3.17.nupkg"
-CHECKRA1N_URL = "https://assets.checkra.in/downloads/macos/433621d02b2aa3b7d4a25e73b2eb1c0b027a8e5b/checkra1n"
-UNC0VER_URL = "https://unc0ver.dev/downloads/8.0.2/unc0ver.ipa"
+# Constants - Platform-specific URLs
 SCRIPT_DIR = Path(__file__).parent
 TOOLS_DIR = SCRIPT_DIR / "tools"
-ADB_PATH = TOOLS_DIR / "platform-tools" / "adb.exe"
-FASTBOOT_PATH = TOOLS_DIR / "platform-tools" / "fastboot.exe"
-ODIN_PATH = TOOLS_DIR / "odin" / "odin.exe"
+
+# Platform detection
+PLATFORM = sys.platform.lower()
+IS_WINDOWS = PLATFORM.startswith('win')
+IS_MACOS = PLATFORM.startswith('darwin')
+IS_LINUX = PLATFORM.startswith('linux')
+
+# ADB/Fastboot URLs
+if IS_WINDOWS:
+    ADB_URL = "https://dl.google.com/android/repository/platform-tools-latest-windows.zip"
+elif IS_MACOS:
+    ADB_URL = "https://dl.google.com/android/repository/platform-tools-latest-darwin.zip"
+elif IS_LINUX:
+    ADB_URL = "https://dl.google.com/android/repository/platform-tools-latest-linux.zip"
+else:
+    ADB_URL = "https://dl.google.com/android/repository/platform-tools-latest-linux.zip"  # fallback
+
+FASTBOOT_URL = ADB_URL  # Same package contains both
+
+# Odin (Windows only)
+ODIN_URL = "https://dl.google.com/dl/android/aosp/odin3-v3.14.4.zip"  # Placeholder - actual Odin URL may vary
+
+# Magisk (APK - universal)
+MAGISK_URL = "https://github.com/topjohnwu/Magisk/releases/download/v27.0/Magisk-v27.0.apk"  # Updated to working URL
+
+# libimobiledevice URLs
+if IS_WINDOWS:
+    LIBIMOBILEDEVICE_URL = "https://github.com/libimobiledevice-win32/libimobiledevice/releases/download/v1.3.18/libimobiledevice.1.3.18.nupkg"
+elif IS_MACOS:
+    LIBIMOBILEDEVICE_URL = None  # Will use Homebrew
+elif IS_LINUX:
+    LIBIMOBILEDEVICE_URL = None  # Will use package manager
+
+CHECKRA1N_URL = "https://assets.checkra.in/downloads/macos/433621d02b2aa3b7d4a25e73b2eb1c0b027a8e5b/checkra1n"
+UNC0VER_URL = "https://unc0ver.dev/downloads/8.0.2/unc0ver.ipa"
+
+# Tool paths - adjusted for platform
+if IS_WINDOWS:
+    ADB_PATH = TOOLS_DIR / "platform-tools" / "adb.exe"
+    FASTBOOT_PATH = TOOLS_DIR / "platform-tools" / "fastboot.exe"
+    ODIN_PATH = TOOLS_DIR / "odin" / "odin.exe"
+    IDEVICEINFO_PATH = TOOLS_DIR / "libimobiledevice" / "ideviceinfo.exe"
+    IDEVICERESTORE_PATH = TOOLS_DIR / "libimobiledevice" / "idevicerestore.exe"
+else:
+    ADB_PATH = TOOLS_DIR / "platform-tools" / "adb"
+    FASTBOOT_PATH = TOOLS_DIR / "platform-tools" / "fastboot"
+    ODIN_PATH = None  # Odin is Windows-only
+    IDEVICEINFO_PATH = shutil.which("ideviceinfo") or (TOOLS_DIR / "bin" / "ideviceinfo")
+    IDEVICERESTORE_PATH = shutil.which("idevicerestore") or (TOOLS_DIR / "bin" / "idevicerestore")
+
 MAGISK_PATH = TOOLS_DIR / "magisk.apk"
-IDEVICEINFO_PATH = TOOLS_DIR / "libimobiledevice" / "ideviceinfo.exe"
-IDEVICERESTORE_PATH = TOOLS_DIR / "libimobiledevice" / "idevicerestore.exe"
 
 class SkyscopeToolbox:
     def __init__(self):
@@ -170,21 +208,90 @@ class SkyscopeToolbox:
             logger.error(f"Command execution failed: {e}")
             return False, "", str(e)
 
-    def download_and_extract(self, url, extract_to):
-        """Download and extract a zip file."""
+    def download_and_extract(self, url, extract_to, extract_type='zip'):
+        """Download and extract a zip file or handle other archive types."""
         try:
             logger.info(f"Downloading {url}")
-            zip_path = extract_to / "temp.zip"
-            urllib.request.urlretrieve(url, zip_path)
+            temp_path = extract_to / "temp"
 
-            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                zip_ref.extractall(extract_to)
+            if extract_type == 'zip':
+                temp_path = temp_path.with_suffix('.zip')
+                urllib.request.urlretrieve(url, temp_path)
 
-            zip_path.unlink()  # Remove temp zip
+                with zipfile.ZipFile(temp_path, 'r') as zip_ref:
+                    zip_ref.extractall(extract_to)
+            else:
+                # For tar.gz or other formats if needed
+                logger.error(f"Unsupported extract type: {extract_type}")
+                return False
+
+            temp_path.unlink()  # Remove temp file
             logger.info("Download and extraction completed")
             return True
         except Exception as e:
             logger.error(f"Download failed: {e}")
+            return False
+
+    def install_libimobiledevice(self):
+            """Install libimobiledevice based on platform."""
+            logger.info("Installing libimobiledevice...")
+    
+            if IS_WINDOWS:
+                # Windows - download precompiled binaries
+                libidevice_dir = self.tools_dir / "libimobiledevice"
+                libidevice_dir.mkdir(exist_ok=True)
+                nupkg_path = libidevice_dir / "temp.nupkg"
+    
+                if download_file(LIBIMOBILEDEVICE_URL, nupkg_path):
+                    # Extract nupkg (which is a zip file)
+                    try:
+                        with zipfile.ZipFile(nupkg_path, 'r') as zip_ref:
+                            for member in zip_ref.namelist():
+                                if member.endswith(('ideviceinfo.exe', 'idevicerestore.exe')):
+                                    zip_ref.extract(member, libidevice_dir)
+                        nupkg_path.unlink()
+                        logger.info("libimobiledevice installed successfully")
+                        return True
+                    except Exception as e:
+                        logger.error(f"Failed to extract libimobiledevice: {e}")
+                        return False
+                else:
+                    logger.warning("Failed to download libimobiledevice - manual installation required")
+                    return False
+    
+            elif IS_MACOS:
+                # macOS - use Homebrew
+                success, _, stderr = self.run_command("brew install libimobiledevice")
+                if success:
+                    logger.info("libimobiledevice installed via Homebrew")
+                    return True
+                else:
+                    logger.warning(f"Homebrew install failed: {stderr}")
+                    logger.warning("Please install Homebrew and run: brew install libimobiledevice")
+                    return False
+    
+            elif IS_LINUX:
+                # Linux - try common package managers
+                package_managers = [
+                    ("apt-get", "libimobiledevice-utils"),
+                    ("yum", "libimobiledevice"),
+                    ("dnf", "libimobiledevice"),
+                    ("pacman", "-S libimobiledevice")
+                ]
+    
+                for pm_cmd, package in package_managers:
+                    success, _, _ = self.run_command(f"which {pm_cmd}")
+                    if success:
+                        logger.info(f"Installing libimobiledevice via {pm_cmd}")
+                        success, _, stderr = self.run_command(f"sudo {pm_cmd} update && sudo {pm_cmd} install -y {package}")
+                        if success:
+                            logger.info("libimobiledevice installed successfully")
+                            return True
+                        break
+    
+                logger.warning("No supported package manager found - manual installation required")
+                return False
+    
             return False
 
     def ensure_prerequisites(self):
@@ -229,12 +336,11 @@ class SkyscopeToolbox:
                 print(f"And place Magisk APK at: {self.magisk_path}")
 
         # Download libimobiledevice for iOS support
-        if not self.ideviceinfo_path.exists():
-            logger.info("Downloading libimobiledevice for iOS support...")
-            idevice_dir = self.tools_dir / "libimobiledevice"
-            idevice_dir.mkdir(exist_ok=True)
-            # Note: This would need proper Windows binaries
-            logger.warning("libimobiledevice download not implemented - please manually install")
+        if not self.ideviceinfo_path.exists() and not shutil.which('ideviceinfo'):
+            logger.info("Installing libimobiledevice for iOS support...")
+            if not self.install_libimobiledevice():
+                logger.warning("libimobiledevice installation failed - iOS features may not work")
+                logger.warning("For manual installation, see: https://libimobiledevice.org/")
 
         logger.info("Prerequisites ready")
 
